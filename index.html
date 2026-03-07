@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FRC Pit Command</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        [v-cloak] { display: none; }
+        @keyframes pulse-border {
+            0%, 100% { border-color: rgba(59, 130, 246, 0.3); }
+            50% { border-color: rgba(59, 130, 246, 1); }
+        }
+        .next-match-highlight {
+            animation: pulse-border 2s infinite;
+            border-width: 2px;
+            background: rgba(30, 41, 59, 0.9);
+        }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen p-4 md:p-6">
+
+    <div id="app" class="max-w-5xl mx-auto" v-cloak>
+        
+        <div v-if="nextMatch" class="mb-8 p-6 rounded-2xl bg-blue-600/10 border border-blue-500/50 shadow-[0_0_30px_rgba(59,130,246,0.15)]">
+            <div class="flex flex-col md:flex-row justify-between items-center gap-6">
+                <div>
+                    <span class="bg-blue-600 text-white text-[10px] font-black px-3 py-1 rounded-full animate-pulse uppercase tracking-widest">Next Assignment</span>
+                    <h2 class="text-4xl font-black mt-2 italic uppercase tracking-tighter">Match {{ nextMatch.match_number }}</h2>
+                    <p class="text-blue-300 font-medium">Alliance: <span :class="isOnRed(nextMatch) ? 'text-red-400' : 'text-blue-400'" class="font-bold underline">{{ isOnRed(nextMatch) ? 'RED' : 'BLUE' }}</span></p>
+                </div>
+                
+                <div class="text-center md:text-right">
+                    <p class="text-xs text-blue-400 uppercase font-bold tracking-widest">Est. Start Time</p>
+                    <p class="text-5xl font-black text-white tracking-tighter">{{ formatTime(nextMatch.predicted_time || nextMatch.time) }}</p>
+                </div>
+
+                <div class="bg-blue-600 px-8 py-4 rounded-xl text-center min-w-[160px] shadow-lg">
+                    <span class="block text-[10px] text-blue-100 font-bold uppercase opacity-80">Bumper Color</span>
+                    <span class="text-3xl font-black text-white italic underline">{{ isOnRed(nextMatch) ? 'RED' : 'BLUE' }}</span>
+                </div>
+            </div>
+        </div>
+
+        <header class="flex justify-between items-end mb-6 border-b border-gray-800 pb-4">
+            <div>
+                <h1 class="text-2xl font-black text-white uppercase tracking-tighter">
+                    Team <span class="text-blue-500">{{ teamNumber }}</span>
+                </h1>
+                <p class="text-xs text-gray-500 font-mono uppercase tracking-widest">Event: {{ eventKey }}</p>
+            </div>
+            <div v-if="!loading" class="flex items-center gap-3">
+                <div class="text-xs font-bold bg-gray-900 px-4 py-2 rounded-lg border border-gray-800">
+                    <span class="text-gray-500 mr-2 uppercase">Record</span>
+                    <span class="text-green-400">{{ stats.wins }}W</span> - 
+                    <span class="text-red-400">{{ stats.losses }}L</span> - 
+                    <span class="text-amber-400">{{ stats.ties }}T</span>
+                </div>
+            </div>
+        </header>
+
+        <div v-if="!loading" class="space-y-3">
+            <div v-for="match in sortedMatches" :key="match.key" 
+                 :class="isNext(match) ? 'next-match-highlight ring-2 ring-blue-500/20 shadow-xl' : 'bg-gray-900 border-gray-800'"
+                 class="grid grid-cols-1 md:grid-cols-12 gap-4 items-center border p-3 rounded-xl transition-all">
+                
+                <div class="col-span-2 flex items-center gap-4">
+                    <div class="text-center min-w-[50px]">
+                        <span class="block text-[10px] font-bold text-gray-500 uppercase leading-none">{{ match.comp_level }}</span>
+                        <span class="text-xl font-black italic">#{{ match.match_number }}</span>
+                    </div>
+                    <div :class="isOnRed(match) ? 'bg-red-600 shadow-[0_0_10px_rgba(220,38,38,0.3)]' : 'bg-blue-600 shadow-[0_0_10px_rgba(37,99,235,0.3)]'" 
+                         class="w-2.5 h-10 rounded-full"></div>
+                </div>
+
+                <div class="col-span-4 flex gap-1.5 justify-center md:justify-start">
+                    <div v-for="team in (isOnRed(match) ? match.alliances.red.team_keys : match.alliances.blue.team_keys)"
+                         :class="cleanTeam(team) == teamNumber ? 'bg-white text-black scale-110 shadow-md ring-1 ring-white' : 'bg-gray-800 text-gray-400'"
+                         class="px-2 py-1.5 rounded font-bold text-xs font-mono w-14 text-center transition-all">
+                        {{ cleanTeam(team) }}
+                    </div>
+                </div>
+
+                <div class="col-span-3 text-center md:text-left">
+                    <div v-if="getMyScore(match) === '--'" class="flex flex-col">
+                        <span class="text-[9px] text-gray-500 uppercase font-black tracking-widest">Est. Start</span>
+                        <span class="text-lg font-bold text-blue-400">{{ formatTime(match.predicted_time || match.time) }}</span>
+                    </div>
+                    <div v-else class="flex items-center gap-3 justify-center md:justify-start">
+                        <span class="text-xl font-black" :class="getMyScore(match) > getTheirScore(match) ? 'text-green-400' : 'text-red-400'">{{ getMyScore(match) }}</span>
+                        <span class="text-gray-700 font-light">/</span>
+                        <span class="text-xl font-black text-gray-500">{{ getTheirScore(match) }}</span>
+                    </div>
+                </div>
+
+                <div class="col-span-3 flex justify-end gap-1 opacity-30 group-hover:opacity-100 transition-opacity">
+                    <div v-for="team in (isOnRed(match) ? match.alliances.blue.team_keys : match.alliances.red.team_keys)"
+                         class="px-2 py-1 rounded bg-gray-800 text-gray-500 text-[10px] font-mono w-10 text-center">
+                        {{ cleanTeam(team) }}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div v-else class="text-center py-20">
+            <div class="inline-block w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+            <p class="text-gray-500 uppercase tracking-widest text-xs font-black">Connecting to TBA...</p>
+        </div>
+    </div>
+
+    <script>
+        /** * DASHBOARD CONFIGURATION 
+         * Change these values to update the view for a different team or event.
+         */
+        const TEAM_NUMBER = '175'; 
+        const EVENT_KEY = '2026mabil';
+        const API_KEY = '';
+
+        const { createApp, ref, computed, onMounted } = Vue;
+
+        createApp({
+            setup() {
+                const teamNumber = ref(TEAM_NUMBER);
+                const eventKey = ref(EVENT_KEY);
+                const teamKey = computed(() => `frc${teamNumber.value}`);
+                
+                const matches = ref([]);
+                const loading = ref(true);
+
+                const fetchMatches = async () => {
+                    try {
+                        const res = await fetch(`https://www.thebluealliance.com/api/v3/event/${eventKey.value}/matches/simple`, {
+                            headers: { 'X-TBA-Auth-Key': API_KEY }
+                        });
+                        const data = await res.json();
+                        // Filter for current team
+                        matches.value = data.filter(m => 
+                            [...m.alliances.red.team_keys, ...m.alliances.blue.team_keys].includes(teamKey.value)
+                        );
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+
+                const sortedMatches = computed(() => [...matches.value].sort((a, b) => (a.time || 0) - (b.time || 0)));
+                
+                const nextMatch = computed(() => {
+                    return sortedMatches.value.find(m => m.alliances.red.score === -1) || null;
+                });
+
+                const isNext = (match) => nextMatch.value && match.key === nextMatch.value.key;
+                const isOnRed = (match) => match.alliances.red.team_keys.includes(teamKey.value);
+                
+                const getMyScore = (m) => {
+                    const s = isOnRed(m) ? m.alliances.red.score : m.alliances.blue.score;
+                    return s === -1 ? '--' : s;
+                };
+
+                const getTheirScore = (m) => {
+                    const s = isOnRed(m) ? m.alliances.blue.score : m.alliances.red.score;
+                    return s === -1 ? '--' : s;
+                };
+
+                const stats = computed(() => {
+                    const played = matches.value.filter(m => m.alliances.red.score !== -1);
+                    return {
+                        wins: played.filter(m => getMyScore(m) > getTheirScore(m)).length,
+                        losses: played.filter(m => getMyScore(m) < getTheirScore(m)).length,
+                        ties: played.filter(m => getMyScore(m) === getTheirScore(m) && getMyScore(m) !== '--').length
+                    };
+                });
+
+                const formatTime = (ts) => {
+                    if (!ts) return "TBD";
+                    return new Date(ts * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+                };
+
+                onMounted(fetchMatches);
+
+                return {
+                    teamNumber, eventKey, loading, sortedMatches, stats, nextMatch,
+                    isOnRed, getMyScore, getTheirScore, formatTime, isNext,
+                    cleanTeam: (key) => key.replace('frc', '')
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
