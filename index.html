@@ -78,6 +78,10 @@
             <div v-if="!loading" class="flex items-center gap-4">
                 <div class="hidden md:flex items-center gap-3 text-xs font-bold bg-gray-900 px-4 py-2 rounded-lg border border-gray-800">
                     <span class="text-green-400">{{ stats.wins }}W</span> - <span class="text-red-400">{{ stats.losses }}L</span> - <span class="text-amber-400">{{ stats.ties }}T</span>
+                    <template v-if="ranking">
+                        <span class="text-gray-600">|</span>
+                        <span class="text-gray-400">Rank <span class="text-white">{{ ranking.rank }}</span><span class="text-gray-600">/{{ ranking.total }}</span></span>
+                    </template>
                 </div>
                 <button @click="showSettings = true" class="bg-gray-800 hover:bg-gray-700 p-2 rounded-lg border border-gray-700 transition-colors">
                     <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
@@ -144,6 +148,7 @@
                 const loading = ref(true);
                 const timer = ref(60);
                 const matches = ref([]);
+                const ranking = ref(null);
                 let intervalId = null;
 
                 const settings = reactive({
@@ -162,13 +167,23 @@
                     loading.value = true;
                     try {
                         const teamKey = `frc${settings.teamNumber}`;
-                        const res = await fetch(`https://www.thebluealliance.com/api/v3/event/${settings.eventKey}/matches/simple`, {
-                            headers: { 'X-TBA-Auth-Key': settings.apiKey }
-                        });
-                        const data = await res.json();
-                        
-                        if (Array.isArray(data)) {
-                            matches.value = data.filter(m => [...m.alliances.red.team_keys, ...m.alliances.blue.team_keys].includes(teamKey));
+                        const [matchRes, rankRes] = await Promise.all([
+                            fetch(`https://www.thebluealliance.com/api/v3/event/${settings.eventKey}/matches/simple`, {
+                                headers: { 'X-TBA-Auth-Key': settings.apiKey }
+                            }),
+                            fetch(`https://www.thebluealliance.com/api/v3/event/${settings.eventKey}/rankings`, {
+                                headers: { 'X-TBA-Auth-Key': settings.apiKey }
+                            })
+                        ]);
+                        const [matchData, rankData] = await Promise.all([matchRes.json(), rankRes.json()]);
+
+                        if (Array.isArray(matchData)) {
+                            matches.value = matchData.filter(m => [...m.alliances.red.team_keys, ...m.alliances.blue.team_keys].includes(teamKey));
+                        }
+
+                        if (rankData && Array.isArray(rankData.rankings)) {
+                            const teamRank = rankData.rankings.find(r => r.team_key === teamKey);
+                            ranking.value = teamRank ? { rank: teamRank.rank, total: rankData.rankings.length } : null;
                         }
                     } catch (e) { console.error(e); }
                     finally {
@@ -223,7 +238,7 @@
                 onUnmounted(() => clearInterval(intervalId));
 
                 return { 
-                    settings, showSettings, loading, matches, sortedMatches, timer, 
+                    settings, showSettings, loading, matches, sortedMatches, timer, ranking,
                     saveSettings, isOnRed, getMyScore, getTheirScore, isNext, nextMatch, stats,
                     cleanTeam: (key) => key.replace('frc', ''),
                     formatTime: (ts) => ts ? new Date(ts * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'TBD'
