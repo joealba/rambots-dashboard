@@ -89,11 +89,51 @@
             </div>
         </header>
 
+        <!-- Team Detail Modal -->
+        <div v-if="teamModal" class="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" @click.self="teamModal = null">
+            <div class="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-sm shadow-2xl p-6">
+                <div v-if="teamModalLoading" class="text-center py-8 text-gray-500 animate-pulse uppercase tracking-widest text-xs font-black">Loading...</div>
+                <div v-else>
+                    <div class="flex justify-between items-start mb-4">
+                        <div>
+                            <p class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Team</p>
+                            <h2 class="text-4xl font-black text-white italic">{{ teamModal.number }}</h2>
+                            <p class="text-blue-400 font-bold mt-1">{{ teamModal.nickname }}</p>
+                        </div>
+                        <button @click="teamModal = null" class="text-gray-600 hover:text-gray-300 transition-colors text-2xl leading-none">&times;</button>
+                    </div>
+                    <div v-if="teamModal.city" class="text-xs text-gray-500 mb-5">{{ teamModal.city }}, {{ teamModal.state_prov }}</div>
+                    <div class="grid grid-cols-3 gap-3 text-center">
+                        <div class="bg-gray-800 rounded-xl p-3">
+                            <p class="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Rank</p>
+                            <p class="text-2xl font-black text-white">{{ teamModal.rank ?? '—' }}</p>
+                            <p v-if="teamModal.rankTotal" class="text-[10px] text-gray-600">of {{ teamModal.rankTotal }}</p>
+                        </div>
+                        <div class="bg-gray-800 rounded-xl p-3">
+                            <p class="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Record</p>
+                            <p class="text-lg font-black">
+                                <span class="text-green-400">{{ teamModal.wins ?? '—' }}</span>
+                                <span class="text-gray-600">-</span>
+                                <span class="text-red-400">{{ teamModal.losses ?? '—' }}</span>
+                                <span class="text-gray-600">-</span>
+                                <span class="text-amber-400">{{ teamModal.ties ?? '—' }}</span>
+                            </p>
+                            <p class="text-[10px] text-gray-600">W-L-T</p>
+                        </div>
+                        <div class="bg-gray-800 rounded-xl p-3">
+                            <p class="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Played</p>
+                            <p class="text-2xl font-black text-white">{{ teamModal.played ?? '—' }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div v-if="!loading && matches.length" class="space-y-3">
-            <div v-for="match in sortedMatches" :key="match.key" 
+            <div v-for="match in sortedMatches" :key="match.key"
                  :class="isNext(match) ? 'next-match-highlight shadow-xl ring-2 ring-blue-500/20' : 'bg-gray-900 border-gray-800'"
                  class="grid grid-cols-1 md:grid-cols-12 gap-4 items-center border p-3 rounded-xl transition-all">
-                
+
                 <div class="col-span-2 flex items-center gap-4">
                     <div class="text-center min-w-[50px]">
                         <span class="block text-[9px] font-bold text-gray-500 uppercase leading-none">{{ match.comp_level }}</span>
@@ -105,7 +145,8 @@
                 <div class="col-span-4 flex gap-1.5 justify-center md:justify-start">
                     <div v-for="team in (isOnRed(match) ? match.alliances.red.team_keys : match.alliances.blue.team_keys)"
                          :class="cleanTeam(team) == settings.teamNumber ? 'bg-white text-black scale-110 shadow-md ring-1 ring-white' : 'bg-gray-800 text-gray-400'"
-                         class="px-2 py-1.5 rounded font-bold text-xs font-mono w-14 text-center">
+                         class="px-2 py-1.5 rounded font-bold text-xs font-mono w-14 text-center cursor-pointer hover:brightness-125 transition-all"
+                         @click="openTeamModal(team)">
                         {{ cleanTeam(team) }}
                     </div>
                 </div>
@@ -129,7 +170,8 @@
 
                 <div class="col-span-3 flex justify-end gap-1 opacity-50 hover:opacity-100 transition-opacity">
                     <div v-for="team in (isOnRed(match) ? match.alliances.blue.team_keys : match.alliances.red.team_keys)"
-                         class="px-2 py-1 rounded bg-gray-800 text-gray-300 text-[10px] font-mono w-10 text-center">
+                         class="px-2 py-1 rounded bg-gray-800 text-gray-300 text-[10px] font-mono w-10 text-center cursor-pointer hover:brightness-125 transition-all"
+                         @click="openTeamModal(team)">
                         {{ cleanTeam(team) }}
                     </div>
                 </div>
@@ -149,6 +191,8 @@
                 const timer = ref(60);
                 const matches = ref([]);
                 const ranking = ref(null);
+                const teamModal = ref(null);
+                const teamModalLoading = ref(false);
                 let intervalId = null;
 
                 const settings = reactive({
@@ -234,11 +278,43 @@
                     };
                 });
 
+                const openTeamModal = async (teamKey) => {
+                    teamModal.value = {};
+                    teamModalLoading.value = true;
+                    try {
+                        const [teamRes, statusRes] = await Promise.all([
+                            fetch(`https://www.thebluealliance.com/api/v3/team/${teamKey}`, {
+                                headers: { 'X-TBA-Auth-Key': settings.apiKey }
+                            }),
+                            fetch(`https://www.thebluealliance.com/api/v3/team/${teamKey}/event/${settings.eventKey}/status`, {
+                                headers: { 'X-TBA-Auth-Key': settings.apiKey }
+                            })
+                        ]);
+                        const [teamData, statusData] = await Promise.all([teamRes.json(), statusRes.json()]);
+                        const record = statusData?.qual?.ranking?.record;
+                        const rankData = statusData?.qual?.ranking;
+                        teamModal.value = {
+                            number: teamData.team_number,
+                            nickname: teamData.nickname,
+                            city: teamData.city,
+                            state_prov: teamData.state_prov,
+                            rank: rankData?.rank ?? null,
+                            rankTotal: ranking.value?.total ?? null,
+                            wins: record?.wins ?? null,
+                            losses: record?.losses ?? null,
+                            ties: record?.ties ?? null,
+                            played: rankData?.matches_played ?? null,
+                        };
+                    } catch (e) { console.error(e); teamModal.value = null; }
+                    finally { teamModalLoading.value = false; }
+                };
+
                 onMounted(() => { fetchMatches(); startTimer(); });
                 onUnmounted(() => clearInterval(intervalId));
 
                 return { 
                     settings, showSettings, loading, matches, sortedMatches, timer, ranking,
+                    teamModal, teamModalLoading, openTeamModal,
                     saveSettings, isOnRed, getMyScore, getTheirScore, isNext, nextMatch, stats,
                     cleanTeam: (key) => key.replace('frc', ''),
                     formatTime: (ts) => ts ? new Date(ts * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'TBD'
